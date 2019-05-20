@@ -2,422 +2,480 @@
 
 >   上机题目：
 >
->   1.   用四种不同并行方式的OpenMP实现π值的计算
->   2.   用OpenMP实现PSRS排序
+>   1.   向量加法。定义A,B两个一维数组,编写GPU程序将A和B对应项相加,将结果保存在数组C中。分别测试数组规模为10W、20W、100W、200W、1000W、2000W时其与CPU加法的运行时间之比。
+>   2.   矩阵乘法。定义A,B两个二维数组。使用GPU实现矩阵乘法。并对比串行程序,给出加速比。
 >
 >   姓名：张劲暾
 >
 >   学号：PB16111485
 >
->   日期：2019年4月27日
+>   日期：2019年5月20日
 >
 >   实验环境：
 >
->   ​	CPU：Intel® Core™ i7-6500U CPU @ 2.50GHz × 4 
+>   ​	CPU：Intel® Xeon® CPU E5-2650 v4 @ 2.20GHz × 47
 >
->   ​	内存：7.7 GiB
+>   ​	GPU: NVIDIA Corporation GP102 [GeForce GTX 1080 Ti] (rev a1) x 8
 >
->   ​	操作系统：Ubuntu 18.10 64bit
+>   ​	内存：263858944 KB (264 GB)
 >
->   ​	软件平台：gcc (Ubuntu 8.2.0-7ubuntu1) 8.2.0
+>   ​	操作系统：Linux G101 3.10.0-693.21.1.el7.x86_64
+>
+>   ​	软件平台：nvcc (NVIDIA® Cuda compiler driver) 8.0 V8.0.44
 
 ## 算法设计与分析
 
 ### 题目一
 
-用四种不同并行方式的OpenMP实现π值的计算：
+向量加法。定义A,B两个一维数组,编写GPU程序将A和B对应项相加,将结果保存在数组C中。分别测试数组规模为10W、20W、100W、200W、1000W、2000W时其与CPU加法的运行时间之比。
 
 **设计：**
 
-求π的积分方法：使用公式arctan(1)=π/4以及(arctan(x))’=1/(1+x^2). 
-在求解arctan(1)时使用矩形法求解： 
-求解arctan(1)是取a=0, b=1.
-$$
-\int^{a}_{b}f(x)dx = y_0\Delta x  + y_1\Delta x  + \dots+y_{n-1}\Delta x \\
-\Delta x = (b -a )/n\\
-y = f(x)\\
-y_i = f (a + i *(b -a)/n)           \quad\quad      i = 0,1,2,\ldots,n
-$$
+1.   每个kernel函数只计算一个位的加法
+2.   在device上动态分配内存空间
+3.   将主机上的数据copy到device
+4.   device并行计算
+5.   将device上的结果copy回主机
 
-
-#### 使用private子句和critical部分并行化
+完整实验代码见附录
 
 ```c++
-#include <stdio.h>
-#include <omp.h>
-
-static long num_steps = 1e5;    // 积分区间数
-double step;                    // 积分步长
-
-#define NUM_THREADS 2   // 并行线程数
-
-void main()
+// 核函数
+__global__ void vectorAdd(const float* A, const float* B, float* C, int length)
 {
-    int i;
-    double pi = 0.0, sum = 0.0, x = 0.0;
-    step = 1.0 / (double)num_steps;
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
 
-    omp_set_num_threads(NUM_THREADS);   // 设置线程数量
-    //=================================================================
-    #pragma omp parallel private(i,x,sum) // private子句表示x,sum变量对于每个线程是私有的
+    if(i < length)
     {
-        int id = omp_get_thread_num();
-        for(i = id, sum = 0.0; i < num_steps; i = i + NUM_THREADS)
-        {   // NUM_THREADS 个线程参加计算，
-            // 其中线程 NUM_THREADS-1 迭代 NUM_THREADS-1, 2*NUM_THREADS-1, ... 步
-            x = (i + 0.5) * step;
-            sum += 4.0 / (1.0 + x * x);
-        }
-        //*************************************************************
-        #pragma omp critical            // critical代码段在同一时刻只能由一个线程执行
-        {                               // 当某线程在这里执行时，其他到达该段代码的线程
-            pi += sum * step;           // 被阻塞直到正在执行的线程退出临界区                                 
-        }
-        //*************************************************************
+        C[i] = A[i] + B[i];
     }
-    //=================================================================
-    printf("%lf\n",pi);
 }
+// 并行调用
+size_t size = lengths[i] * sizeof(float);
+
+float* host_A = (float*)malloc(size);
+float* host_B = (float*)malloc(size);
+float* host_C = (float*)malloc(size);
+float* host_C_Serial = (float*)malloc(size);
+
+for(int j = 0; j < lengths[i]; j++)
+{
+		host_A[j] = rand() / MY_RAND_MAX;
+		host_B[j] = rand() / MY_RAND_MAX;
+}
+
+float* device_A = NULL;
+float* device_B = NULL;
+float* device_C = NULL;
+
+cudaMalloc((void**)&device_A, size);
+cudaMalloc((void**)&device_B, size);
+cudaMalloc((void**)&device_C, size);
+
+int threadsPerBlock = 1024;
+int blocksPerGrid = (lengths[i] + threadsPerBlock - 1) / threadsPerBlock;
+
+gettimeofday(&beginTime, NULL);
+//------------------------------------------------------------------------------------
+cudaMemcpy(device_A, host_A, size, cudaMemcpyHostToDevice);
+cudaMemcpy(device_B, host_B, size, cudaMemcpyHostToDevice);
+vectorAdd<<<blocksPerGrid, threadsPerBlock>>>(device_A, device_B, device_C, lengths[i]);
+cudaMemcpy(host_C, device_C, size, cudaMemcpyDeviceToHost);
+//------------------------------------------------------------------------------------
+gettimeofday(&endTime, NULL);
+
+int cudaTime_us = (endTime.tv_sec - beginTime.tv_sec) * 1e6 + (endTime.tv_usec - beginTime.tv_usec);
+        
 ```
 
 结果：结果正确
 
 ```shell
-$ gcc privateAndCritical.c -fopenmp -o privateAndCritical
-$ ./privateAndCritical 
-3.141593
-$
-```
-#### 使用并行域并行化
-
-```c++
-// 使用并行域并行化
-#include <stdio.h>
-#include <omp.h>
-
-static long num_steps = 1e5;    // 积分区间数
-double step;                    // 积分步长
-
-#define NUM_THREADS 2   // 并行线程数
-
-void main()
-{
-    int i;
-    double pi, sum[NUM_THREADS];
-    step = 1.0 / (double)num_steps;
-
-    omp_set_num_threads(NUM_THREADS);   // 设置线程数量
-    //===========================================================================================
-    #pragma omp parallel private(i)     // 并行域开始，每个线程各自执行这段代码
-    {
-        double x;
-        int id = omp_get_thread_num();
-        for(i = id, sum[id] = 0.0; i < num_steps; i = i + NUM_THREADS)
-        {   // NUM_THREADS 个线程参加计算，
-            // 其中线程 NUM_THREADS-1 迭代 NUM_THREADS-1, 2*NUM_THREADS-1, ... 步
-            x = (i + 0.5) * step;
-            sum[id] += 4.0 / (1.0 + x * x);
-        }
-    }
-    //===========================================================================================
-    for(i = 0, pi = 0.0; i < NUM_THREADS; i++)
-    {
-        pi += sum[i] * step;
-    }
-    printf("%lf\n",pi);
-}
-
-```
-
-结果：结果正确
-
-```shell
-$ gcc parallelRegion.c  -fopenmp -o parallelRegion
-$ ./parallelRegion 
-3.141593
-$ 
-```
-#### 使用共享任务结构并行化
-
-```c++
-// 使用共享任务结构并行化
-#include <stdio.h>
-#include <omp.h>
-
-static long num_steps = 1e5;    // 积分区间数
-double step;                    // 积分步长
-
-#define NUM_THREADS 2   // 并行线程数
-
-void main()
-{
-    int i;
-    double pi, sum[NUM_THREADS];
-    step = 1.0 / (double)num_steps;
-    omp_set_num_threads(NUM_THREADS);   // 设置线程数量
-    //===================================================================
-    #pragma omp parallel                // 并行域开始，每个线程各自执行这段代码
-    {
-        double x;
-        int id = omp_get_thread_num();
-        sum[id] = 0.0;
-        //*************************************************************************
-        #pragma omp for                 // 未指定chunk，迭代**连续而平均地**分配给各线程
-        for(i = 0; i < num_steps; i++)
-        {   // 两个线程参加计算，线程0进行迭代步0~49999，线程1进行迭代步50000~99999
-            x = (i + 0.5) * step;
-            sum[id] += 4.0 / (1.0 + x * x);
-        }
-        //*************************************************************************
-    }
-    //===================================================================
-    for(i = 0, pi = 0.0; i < NUM_THREADS; i++)
-    {
-        pi += sum[i] * step;
-    }
-    printf("%lf\n", pi);
-}
-```
-
-结果：结果正确
-
-```shell
-$ gcc shareStructure.c -fopenmp -o shareStructure
-$ ./shareStructure 
-3.141593
-$ 
-```
-#### 使用并行规约
-
-```c++
-// 使用并行规约
-#include <stdio.h>
-#include <omp.h>
-
-static long num_steps = 1e5;    // 积分区间数
-double step;                    // 积分步长
-
-#define NUM_THREADS 2   // 并行线程数
-
-void main()
-{
-    int i;
-    double pi = 0.0, sum = 0.0, x = 0.0;
-    step = 1.0 / (double)num_steps;
-
-    omp_set_num_threads(NUM_THREADS);   // 设置线程数量
-    //================================================================================
-    #pragma omp parallel for reduction(+:sum) private(x)
-    // 每个线程保留一份私有拷贝sum，x为线程私有
-    // 最后对线程中所有sum进行+规约，并更新sum的全局值
-    for(i = 0; i < num_steps; i++)
-    {
-        x = (i + 0.5) * step;
-        sum += 4.0 / (1.0 + x * x);
-    }
-    //================================================================================
-    pi = sum * step;
-    printf("%lf\n",pi);
-}
-```
-
-结果：结果正确
-
-```shell
-$ gcc reduce.c -fopenmp -o reduce
-$ ./reduce 
-3.141593
-$ 
+[test001@G101 WulingYan]$ nvcc ./vectorAdd.cu -o ./vectorAdd
+[test001@G101 WulingYan]$ ./vectorAdd
+length:     100000, Speedup ratio = 1.044118
+length:     200000, Speedup ratio = 1.291619
+length:    1000000, Speedup ratio = 1.559444
+length:    2000000, Speedup ratio = 1.730396
+length:   10000000, Speedup ratio = 1.524786
+length:   20000000, Speedup ratio = 1.642759
+[test001@G101 WulingYan]$
 ```
 
 ### 题目二
 
-用OpenMP实现PSRS排序
+矩阵乘法。定义A,B两个二维数组。使用GPU实现矩阵乘法。并对比串行程序,给出加速比。
 
+**设计：**
 
-设计：bingxingku
+1.  每个kernel函数只计算一个矩阵元素
+2.  在device上动态分配内存空间
+3.  将主机上的数据copy到device
+4.  在每个block静态分配shared memory
+5.  所有线程并行合作，将计算所需要的子矩阵加载到shared memory
+6.  同步进程，保证所有数据到达shared memory
+7.  利用shared memory中的数据计算对应矩阵中的元素
+8.  同步进程，保证所有线程同时进入下一个循环，不存在抢先修改上一个循环shared memory内容的问题
+9.  将计算结果写回device
+10.  将device上的结果copy回主机
+
+完整实验代码见附录
 
 ```c++
-/*******************************************************************************
- * PSRS (Parallel Sorting by Regular Sampling) 排序算法：
- * STEP1 均匀划分: 将n个元素A[1,...,n]均匀划分为p段，每个pi处理A[(i-1)n/p+1,...,in/p]
- * STEP2 局部排序: pi调用串行排序算法对A[(i-1)n/p+1,...,in/p]排序
- * STEP3 正则采样: pi从有序子序列A[(i-1)n/p+1,...,in/p]中选取p个样本元素
- * STEP4 采样排序: 用一台处理器对p^2个样本元素进行串行排序
- * STEP5 选择主元: 用一台处理器从排好序的样本序列中选取p-1个主元，并传播给其他pi
- * STEP6 主元划分: pi按主元将有序段A[(i-1)n/p+1,...,in/p]划分成p段
- * STEP7 全局交换: 各处理器将其有序段按段号交换到对应的处理器中
- * STEP8 局部排序: 各处理器对接收到的元素进行局部排序
-********************************************************************************/
-#include <stdio.h>
-#include <math.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <omp.h>
-
-#define NUM_THREADS 3   // 并行线程数
-
-#define RANDOM_LIMIT 50
-#define TEST_SIZE 81
-#define SHOW_CORRECTNESS
-//#define SHOW_DISTRIBUTION
-
-double Myrandom(void){
-    int Sign = rand() % 2;
-    return (rand() % RANDOM_LIMIT) / pow(-1,Sign + 2); 
-}
-void swap(int* a, int* b)
+// 核函数
+__global__ void matrixMultiply( float* C, 
+                                const float* A, 
+                                const float* B, 
+                                const int widthA, 
+                                const int widthB
+                                )
 {
-    int temp = *a;
-    *a = *b;
-    *b = temp;
-}
-int partition(int* array, int left, int right)
-{
-    int x = array[right];
-    int i = left - 1;
-    for(int j = left; j < right; j++)
-    {
-        if(array[j] <= x)
-        {
-            swap(&array[++i],&array[j]);
-        }
-    }
-    swap(&array[i + 1],&array[right]);
-    return i + 1;
-}
-void quickSort(int* array, int left, int right)
-{
-    if(left < right)
-    {
-        int q = partition(array, left, right);
-        quickSort(array, left, q - 1);
-        quickSort(array, q + 1, right);
-    }
-}
-void PSRSSort(int* array, int length)
-{
-    int base = length / NUM_THREADS;                    // 划分段长度(这里假设能整除，不能整除补无穷大)
-    int sample[NUM_THREADS * NUM_THREADS];              // 正则采样数
-    int pivot[NUM_THREADS - 1];                         // 主元
-    int count[NUM_THREADS][NUM_THREADS] = {0};          // 各cpu段长度
-    int pivotArray[NUM_THREADS][NUM_THREADS][50] = {0}; // 各cpu段
+    int block_x = blockIdx.x;
+    int block_y = blockIdx.y;
 
-    omp_set_num_threads(NUM_THREADS);   // 设置线程数量
-    //=================================================================================
-    #pragma omp parallel
+    int thread_x = threadIdx.x;
+    int thread_y = threadIdx.y;
+/*******************************************************************************/
+    int A_start = widthA * BLOCK_SIZE * block_y;
+    int A_end   = A_start + widthA - 1;
+    int A_step  = BLOCK_SIZE;
+    int B_start = BLOCK_SIZE * block_x;
+    int B_step  = BLOCK_SIZE * widthB;
+
+    float C_submatrix = 0.0;
+
+    for(int a = A_start, b = B_start; a <= A_end; a += A_step, b += B_step)
     {
-        int id = omp_get_thread_num();
-        // 并行局部排序
-        quickSort(array, id * base, (id + 1) * base - 1);
-        // 正则采样
-        for(int j = 0; j < NUM_THREADS; j++)
+        __shared__ float shared_A[BLOCK_SIZE][BLOCK_SIZE];
+        __shared__ float shared_B[BLOCK_SIZE][BLOCK_SIZE];
+
+        shared_A[thread_y][thread_x] = A[widthA * thread_y + thread_x + a];
+        shared_B[thread_y][thread_x] = B[widthB * thread_y + thread_x + b];
+
+        __syncthreads();    
+
+        // 循环展开
+        #pragma unroll
+
+        for(int k = 0; k < BLOCK_SIZE; k++)
         {
-            sample[id * NUM_THREADS + j] = array[id * base + (j + 1) * base / (NUM_THREADS + 1)];
+            C_submatrix += shared_A[thread_y][k] * shared_B[k][thread_x];
         }
-        #pragma omp barrier             // 设置路障，同步队列中的所有线程
-        //*****************************************************************************
-        #pragma omp master              
-        {   // 主线程采样排序
-            quickSort(sample, 0, NUM_THREADS * NUM_THREADS - 1);
-            // 选择主元
-            for(int i = 1; i < NUM_THREADS; i++)
-            {
-                pivot[i - 1] = sample[i * NUM_THREADS];
-            }
-        }
-        #pragma omp barrier             // 设置路障，同步队列中的所有线程
-        //*****************************************************************************
-        for(int k = 0, m = 0/*主元指针*/; k < base; k++)       // 主元划分
-        {
-            if(array[id * base + k] < pivot[m])
-            {   
-                pivotArray[id][m][count[id][m]++] = array[id * base + k];
-            }
-            else
-            {   
-                m != NUM_THREADS - 1 ? m++ : 0;     // 最后一段的处理
-                pivotArray[id][m][count[id][m]++] = array[id * base + k];
-            }
-        }
-        //*****************************************************************************
-        #pragma omp barrier             // 设置路障，同步队列中的所有线程
-        // 全局交换
-        for(int k = 0; k < NUM_THREADS; k++)
-        {
-            if(k != id)
-            {
-                memcpy(pivotArray[id][id] + count[id][id], pivotArray[k][id], sizeof(int) * count[k][id]);
-                count[id][id] += count[k][id];
-            }
-        }
-        // 局部排序
-        quickSort(pivotArray[id][id], 0, count[id][id] - 1);
+
+        __syncthreads();
     }
-    //=================================================================================
-    // 结果输出
-    #ifdef SHOW_DISTRIBUTION
-    for(int z = 0; z < NUM_THREADS; z++)
-        printf("%d\t",count[z][z]);
-    printf("\n");
-    #endif
-    #ifdef SHOW_CORRECTNESS
-    printf("The Sorted Array is:\n");
-    for(int x = 0; x < NUM_THREADS; x++)
-    {
-        for(int y = 0; y < count[x][x]; y++)
-            printf("%d\t",pivotArray[x][x][y]);
-        printf("\n");
-    }
-    #endif
+    int blo_bias = ( widthB * block_y  + block_x  ) * BLOCK_SIZE;
+    int ele_bias = ( widthB * thread_y + thread_x );
+    C[ blo_bias + ele_bias ] = C_submatrix;
+/*******************************************************************************/
 }
-int main(int argc, char* argv[])
-{   //====================================================================
-    srand((unsigned int)time(NULL));
-    int test[TEST_SIZE];
-    for(int i = 0;i < TEST_SIZE;i++)
-        test[i] = Myrandom();
-    //====================================================================
-    #ifdef SHOW_CORRECTNESS
-    printf("The Original结果正确 Array is:\n");
-    for(int i = 0; i < 9; i++)
-    {
-        for(int j = 0; j < 9; j++)
-            printf("%d\t",test[i * 9 + j]);
-        printf("\n");
-    }
-    #endif
-    //====================================================================
-    PSRSSort(test, TEST_SIZE);
-    //===================结果正确=================================================
-    return 0;
+// 并行调用
+struct timeval beginTime, endTime;
+
+size_t size_A = sizeof(float) * WIDTH_A * HEIGHT_A;
+size_t size_B = sizeof(float) * WIDTH_B * HEIGHT_B;
+size_t size_C = sizeof(float) * WIDTH_B * HEIGHT_A;
+
+float* host_A        = (float* )malloc( size_A );
+float* host_B        = (float* )malloc( size_B );
+float* host_C        = (float* )malloc( size_C );
+float* host_C_Serial = (float* )malloc( size_C );
+
+float* device_A = NULL;
+float* device_B = NULL;
+float* device_C = NULL;
+
+cudaMalloc( (void**)&device_A, size_A );
+cudaMalloc( (void**)&device_B, size_B );
+cudaMalloc( (void**)&device_C, size_C );
+
+
+for(int j = 0; j < WIDTH_A * HEIGHT_A; j++)
+{
+		host_A[j] = rand() / MY_RAND_MAX;
 }
+for(int j = 0; j < WIDTH_B * HEIGHT_B; j++)
+{
+		host_B[j] = rand() / MY_RAND_MAX;
+}
+
+dim3 block( BLOCK_SIZE, BLOCK_SIZE) ;
+dim3 grid(  WIDTH_B / BLOCK_SIZE, HEIGHT_A / BLOCK_SIZE);
+
+gettimeofday(&beginTime, NULL);
+//------------------------------------------------------------------------------------
+cudaMemcpy(device_A, host_A, size_A, cudaMemcpyHostToDevice);
+cudaMemcpy(device_B, host_B, size_B, cudaMemcpyHostToDevice);
+matrixMultiply<<<grid, block>>>(device_C, device_A, device_B, WIDTH_A, WIDTH_B);
+cudaMemcpy(host_C, device_C, size_C, cudaMemcpyDeviceToHost);
+//------------------------------------------------------------------------------------
+gettimeofday(&endTime, NULL);
+
+int cudaTime_us = (endTime.tv_sec - beginTime.tv_sec) * 1e6 + (endTime.tv_usec - beginTime.tv_usec);
 ```
 
 结果：结果正确
 
 ```shell
-$ g++ psrs.cpp -fopenmp -o psrs -lm
-$ ./psrs 
-The Original Array is:
--39	-46	-18	-38	44	8	24	16	-31	
--36	0	-32	-27	12	31	0	0	42	
-48	44	22	44	-28	-2	6	29	29	
-21	16	-37	42	-20	37	14	-47	29	
--14	20	-39	7	-15	5	0	3	-13	
-17	-31	-1	2	-6	-27	-20	11	-39	
-17	47	32	29	-32	4	28	-5	-10	
--31	22	-13	25	44	29	-37	31	31	
--41	0	-46	21	29	-37	34	4	8	
-The Sorted Array is:
--47	-46	-46	-41	-39	-39	-39	-38	-37	-37	-37	-36	-32	-32	-31	-31	-31	-28	-27	-27	-20	-20	-18	-15	-14	-13	-13	-10	-6	-5	-2	-1	
-0	0	0	0	0	2	3	4	4	5	6	7	8	8	11	12	14	16	16	
-17	17	20	21	21	22	22	24	25	28	29	29	29	29	29	29	31	31	31	32	34	37	42	42	44	44	44	44	47	48	
-$ 
+[test001@G101 WulingYan]$ nvcc ./matrixMultiply.cu -o ./matrixMultiply
+[test001@G101 WulingYan]$ ./matrixMultiply
+Speedup ratio = 1037.384033
+[test001@G101 WulingYan]$
 ```
 
 ## 总结
 
-通过算法实现锻炼了并行思维，熟悉了OpenMP并行库的使用。
+1.  通过算法实现锻炼了并行思维，熟悉了Cuda编程环境的使用。
+2.  验证了shared memory优化“几百倍加速”的理论
+
+## 附录
+
+### 向量加法`vectorAdd.cu`
+
+```c++
+#include <stdio.h>
+#include <sys/time.h>
+#include <cuda_runtime.h>
+
+#define MY_RAND_MAX 100.0
+
+__global__ void vectorAdd(const float* A, const float* B, float* C, int length)
+{
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+
+    if(i < length)
+    {
+        C[i] = A[i] + B[i];
+    }
+}
+
+int main(void)
+{
+    struct timeval beginTime, endTime;
+    int lengths[6] = {(int)1e5, (int)2e5, (int)1e6, (int)2e6, (int)1e7, (int)2e7};
+
+    for(int i = 0; i < 6; i++)
+    {
+        size_t size = lengths[i] * sizeof(float);
+
+        float* host_A = (float*)malloc(size);
+        float* host_B = (float*)malloc(size);
+        float* host_C = (float*)malloc(size);
+        float* host_C_Serial = (float*)malloc(size);
+
+        for(int j = 0; j < lengths[i]; j++)
+        {
+            host_A[j] = rand() / MY_RAND_MAX;
+            host_B[j] = rand() / MY_RAND_MAX;
+        }
+
+        float* device_A = NULL;
+        float* device_B = NULL;
+        float* device_C = NULL;
+
+        cudaMalloc((void**)&device_A, size);
+        cudaMalloc((void**)&device_B, size);
+        cudaMalloc((void**)&device_C, size);
+
+        int threadsPerBlock = 1024;
+        int blocksPerGrid = (lengths[i] + threadsPerBlock - 1) / threadsPerBlock;
+
+        gettimeofday(&beginTime, NULL);
+    //------------------------------------------------------------------------------------
+        cudaMemcpy(device_A, host_A, size, cudaMemcpyHostToDevice);
+        cudaMemcpy(device_B, host_B, size, cudaMemcpyHostToDevice);
+        vectorAdd<<<blocksPerGrid, threadsPerBlock>>>(device_A, device_B, device_C, lengths[i]);
+        cudaMemcpy(host_C, device_C, size, cudaMemcpyDeviceToHost);
+    //------------------------------------------------------------------------------------
+        gettimeofday(&endTime, NULL);
+
+        int cudaTime_us = (endTime.tv_sec - beginTime.tv_sec) * 1e6 + (endTime.tv_usec - beginTime.tv_usec);
+        
+        gettimeofday(&beginTime, NULL);
+    //------------------------------------------------------------------------------------
+        for(int j = 0; j < lengths[i]; j++)
+        {
+            host_C_Serial[j] = host_A[j] + host_B[j];
+        }
+    //------------------------------------------------------------------------------------
+        gettimeofday(&endTime, NULL);
+
+        int serialTime_us = (endTime.tv_sec - beginTime.tv_sec) * 1e6 + (endTime.tv_usec - beginTime.tv_usec);
+
+        for(int j = 0; j < lengths[i]; j++)
+        {
+            if(fabs(host_C[j] - host_C_Serial[j]) > 1e-5)
+            {
+                printf("Seems Wrong.\n");
+            }
+        }
+        printf("length: %10d, Speedup ratio = %.6f\n", lengths[i], (float)serialTime_us / (float)cudaTime_us );
+
+        cudaFree(device_A);
+        cudaFree(device_B);
+        cudaFree(device_C);
+
+        free(host_A);
+        free(host_B);
+        free(host_C);
+        free(host_C_Serial);
+    }
+    return 0;
+}
+```
+
+### 矩阵乘法`matrixMultiply.cu`
+
+```c++
+#include <stdio.h>
+#include <sys/time.h>
+#include <cuda_runtime.h>
+
+#define MY_RAND_MAX 100000000.0
+
+#define WIDTH_A     (int)640
+#define HEIGHT_A    (int)640
+#define WIDTH_B     (int)640
+#define HEIGHT_B    (int)640
+#define BLOCK_SIZE  16
+
+__global__ void matrixMultiply( float* C, 
+                                const float* A, 
+                                const float* B, 
+                                const int widthA, 
+                                const int widthB
+                                )
+{
+    int block_x = blockIdx.x;
+    int block_y = blockIdx.y;
+
+    int thread_x = threadIdx.x;
+    int thread_y = threadIdx.y;
+/*******************************************************************************/
+    int A_start = widthA * BLOCK_SIZE * block_y;
+    int A_end   = A_start + widthA - 1;
+    int A_step  = BLOCK_SIZE;
+    int B_start = BLOCK_SIZE * block_x;
+    int B_step  = BLOCK_SIZE * widthB;
+
+    float C_submatrix = 0.0;
+
+    for(int a = A_start, b = B_start; a <= A_end; a += A_step, b += B_step)
+    {
+        __shared__ float shared_A[BLOCK_SIZE][BLOCK_SIZE];
+        __shared__ float shared_B[BLOCK_SIZE][BLOCK_SIZE];
+
+        shared_A[thread_y][thread_x] = A[widthA * thread_y + thread_x + a];
+        shared_B[thread_y][thread_x] = B[widthB * thread_y + thread_x + b];
+
+        __syncthreads();
+
+        // 循环展开
+        #pragma unroll
+
+        for(int k = 0; k < BLOCK_SIZE; k++)
+        {
+            C_submatrix += shared_A[thread_y][k] * shared_B[k][thread_x];
+        }
+
+        __syncthreads();
+    }
+    int blo_bias = ( widthB * block_y  + block_x  ) * BLOCK_SIZE;
+    int ele_bias = ( widthB * thread_y + thread_x );
+    C[ blo_bias + ele_bias ] = C_submatrix;
+/*******************************************************************************/
+}
+
+int main()
+{
+    struct timeval beginTime, endTime;
+
+    size_t size_A = sizeof(float) * WIDTH_A * HEIGHT_A;
+    size_t size_B = sizeof(float) * WIDTH_B * HEIGHT_B;
+    size_t size_C = sizeof(float) * WIDTH_B * HEIGHT_A;
+
+    float* host_A        = (float* )malloc( size_A );
+    float* host_B        = (float* )malloc( size_B );
+    float* host_C        = (float* )malloc( size_C );
+    float* host_C_Serial = (float* )malloc( size_C );
+
+    float* device_A = NULL;
+    float* device_B = NULL;
+    float* device_C = NULL;
+
+    cudaMalloc( (void**)&device_A, size_A );
+    cudaMalloc( (void**)&device_B, size_B );
+    cudaMalloc( (void**)&device_C, size_C );
+
+
+    for(int j = 0; j < WIDTH_A * HEIGHT_A; j++)
+    {
+        host_A[j] = rand() / MY_RAND_MAX;
+    }
+    for(int j = 0; j < WIDTH_B * HEIGHT_B; j++)
+    {
+        host_B[j] = rand() / MY_RAND_MAX;
+    }
+
+    dim3 block( BLOCK_SIZE, BLOCK_SIZE) ;
+    dim3 grid(  WIDTH_B / BLOCK_SIZE, HEIGHT_A / BLOCK_SIZE);
+
+    gettimeofday(&beginTime, NULL);
+//------------------------------------------------------------------------------------
+    cudaMemcpy(device_A, host_A, size_A, cudaMemcpyHostToDevice);
+    cudaMemcpy(device_B, host_B, size_B, cudaMemcpyHostToDevice);
+    matrixMultiply<<<grid, block>>>(device_C, device_A, device_B, WIDTH_A, WIDTH_B);
+    cudaMemcpy(host_C, device_C, size_C, cudaMemcpyDeviceToHost);
+//------------------------------------------------------------------------------------
+    gettimeofday(&endTime, NULL);
+
+    int cudaTime_us = (endTime.tv_sec - beginTime.tv_sec) * 1e6 + (endTime.tv_usec - beginTime.tv_usec);
+
+    gettimeofday(&beginTime, NULL);
+//------------------------------------------------------------------------------------
+    for(int i = 0; i < HEIGHT_A; i++)
+    {
+        for(int j = 0; j < WIDTH_B; j++)
+        {
+            host_C_Serial[i * WIDTH_B + j] = 0.0;
+            for(int k = 0; k < WIDTH_A; k++)
+            {
+                host_C_Serial[i * WIDTH_B + j] += host_A[i * WIDTH_A + k] * host_B[k * WIDTH_B + j];
+            }
+        }
+    }
+//------------------------------------------------------------------------------------
+    gettimeofday(&endTime, NULL);
+
+    int serialTime_us = (endTime.tv_sec - beginTime.tv_sec) * 1e6 + (endTime.tv_usec - beginTime.tv_usec);
+
+    for(int i = 0; i < HEIGHT_A; i++)
+    {
+        for(int j = 0; j < WIDTH_B; j++)
+        {
+            
+            if(fabs(host_C[i * WIDTH_B + j] - host_C_Serial[i * WIDTH_B + j]) > 1e-1)
+            {
+                printf("Seems Wrong at %d, %d , %f, %f.\n", i, j, host_C[i * WIDTH_B + j],host_C_Serial[i * WIDTH_B + j]);
+                exit(0);
+            }
+        }
+    }
+
+    printf("Speedup ratio = %.6f\n", (float)serialTime_us / (float)cudaTime_us );
+
+    cudaFree(device_A);
+    cudaFree(device_B);
+    cudaFree(device_C);
+
+    free(host_A);
+    free(host_B);
+    free(host_C);
+    free(host_C_Serial);
+
+    return 0;
+}
+```
+
+
 

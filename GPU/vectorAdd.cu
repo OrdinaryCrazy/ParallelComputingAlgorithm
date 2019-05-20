@@ -49,9 +49,7 @@ int main(void)
     //------------------------------------------------------------------------------------
         cudaMemcpy(device_A, host_A, size, cudaMemcpyHostToDevice);
         cudaMemcpy(device_B, host_B, size, cudaMemcpyHostToDevice);
-        //gettimeofday(&beginTime, NULL);
         vectorAdd<<<blocksPerGrid, threadsPerBlock>>>(device_A, device_B, device_C, lengths[i]);
-        //gettimeofday(&endTime, NULL);
         cudaMemcpy(host_C, device_C, size, cudaMemcpyDeviceToHost);
     //------------------------------------------------------------------------------------
         gettimeofday(&endTime, NULL);
