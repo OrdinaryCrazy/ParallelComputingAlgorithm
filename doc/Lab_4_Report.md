@@ -1,423 +1,842 @@
 # 并行计算 上机报告
 
->   上机题目：
+**上机题目：**
+ 	1.   按照`Hadoop`安装运行说明文档中的指导，自己搭建伪分布式`Hadoop`环境，熟悉`HDFS`的常用操作(参考 `Hdoop实战` 第31-36页)，运行`WordCount`程序，得到统计结果。请详细写出你每一步的操作,最好有截图,最后的结果部分必须有截图。
+ 	2.   实现一个统计输入文件中各个长度的单词出现频次的程序。
+
+**姓名：**张劲暾
+
+**学号：**PB16111485
+
+**日期：**2019年5月25日
+
+**实验环境：**
+
+>   ​	**CPU：** *Intel® Core™ i7-6500U CPU @ 2.50GHz × 4* 
 >
->   1.   用四种不同并行方式的OpenMP实现π值的计算
->   2.   用OpenMP实现PSRS排序
+>   ​	**内存：** *7.7 GiB*
 >
->   姓名：张劲暾
+>   ​	**操作系统：** *Ubuntu 19.04 64bit*
 >
->   学号：PB16111485
+>   ​	**软件平台：**
 >
->   日期：2019年4月27日
+>      1. *Hadoop 2.7.6*
 >
->   实验环境：
+>      2. *openjdk version "1.8.0_212"*
 >
->   ​	CPU：Intel® Core™ i7-6500U CPU @ 2.50GHz × 4 
+>         *OpenJDK Runtime Environment (build 1.8.0_212-8u212-b03-0ubuntu1.19.04.2-b03)*
 >
->   ​	内存：7.7 GiB
->
->   ​	操作系统：Ubuntu 18.10 64bit
->
->   ​	软件平台：gcc (Ubuntu 8.2.0-7ubuntu1) 8.2.0
+>         *OpenJDK 64-Bit Server VM (build 25.212-b03, mixed mode)*
+
+## 目录
+
+---
+
+[TOC]
+
+---
+
 
 ## 算法设计与分析
 
 ### 题目一
 
-用四种不同并行方式的OpenMP实现π值的计算：
+按照`Hadoop`安装运行说明文档中的指导，自己搭建伪分布式`Hadoop`环境，熟悉`HDFS`的常用操作(参考 `Hdoop实战` 第31-36页)，运行`WordCount`程序，得到统计结果。请详细写出你每一步的操作,最好有截图,最后的结果部分必须有截图。
 
-**设计：**
+**实验步骤：**
 
-求π的积分方法：使用公式arctan(1)=π/4以及(arctan(x))’=1/(1+x^2). 
-在求解arctan(1)时使用矩形法求解： 
-求解arctan(1)是取a=0, b=1.
-$$
-\int^{a}_{b}f(x)dx = y_0\Delta x  + y_1\Delta x  + \dots+y_{n-1}\Delta x \\
-\Delta x = (b -a )/n\\
-y = f(x)\\
-y_i = f (a + i *(b -a)/n)           \quad\quad      i = 0,1,2,\ldots,n
-$$
+#### 创建`Hadoop`用户并设置密码
+
+```bash
+$sudo useradd -m hadoop -s /bin/bash
+$sudo passwd hadoop
+```
+
+#### 为`Hadoop`用户增加管理员权限
+
+```bash
+$sudo adduser hadoop sudo
+```
+
+#### 切换到`Hadoop`用户下
+
+#### 安装SSH、配置SSH无密码登陆
+
+```bash
+$sudo apt-get update
+$sudo apt-get install openssh-server
+cd ~/.ssh/                     # 若没有该目录，请先执行一次ssh localhost
+ssh-keygen -t rsa              # 会有提示，都按回车就可以
+cat ./id_rsa.pub >> ./authorized_keys  #
+ssh localhost
+```
+
+![1558534081891](/home/hadoop/ParallelComputingAlgorithm/doc/1558534081891.png)
+
+#### 安装JAVA环境
+
+```bash
+$ $JAVA_HOME
+bash: /usr/lib/jvm/java-8-openjdk-amd64：是一个目录
+gedit ~/.bashrc
+```
+
+在文件最前面添加如下单独一行
+
+```bash
+export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+```
+
+![1558534287548](/home/hadoop/ParallelComputingAlgorithm/doc/1558534287548.png)
+
+```bash
+$ source ~/.bashrc    # 使变量设置生效
+```
+
+#### 安装`Hadoop`
+
+1.  下载[安装包](http://mirror.bit.edu.cn/apache/hadoop/common/hadoop-2.7.6/hadoop-2.7.6.tar.gz)
+
+2.  解压到安装路径
+```bash
+    $ sudo tar -zxf ~/下载/hadoop-2.7.6.tar.gz -C /usr/local    # 解压到/usr/local中
+    $ cd /usr/local/
+    $ sudo mv ./hadoop-2.7.4/ ./hadoop            		 # 将文件夹名改为hadoop
+    $ sudo chown -R hadoop ./hadoop       							# 修改文件权限
+    $ cd /usr/local/hadoop 															 # 进入Hadoop 目录下
+    $ ./bin/hadoop version  														# 在该目录下执行该命令
+```
+
+![1558534675641](/home/hadoop/ParallelComputingAlgorithm/doc/1558534675641.png)
+
+#### `Hadoop`伪分布式配置
+
+`/usr/local/hadoop/etc/hadoop/core-site.xml` 设置：
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!--
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License. See accompanying LICENSE file.
+-->
+
+<!-- Put site-specific property overrides in this file. -->
+
+<configuration>
+        <property>
+             <name>hadoop.tmp.dir</name>
+             <value>file:/usr/local/hadoop/tmp</value>
+             <description>Abase for other temporary directories.</description>
+        </property>
+        <property>
+             <name>fs.defaultFS</name>
+             <value>hdfs://localhost:9000</value>
+        </property>
+</configuration>
+```
+
+`/usr/local/hadoop/etc/hadoop/hdfs-site.xml` 设置：
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!--
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License. See accompanying LICENSE file.
+-->
+
+<!-- Put site-specific property overrides in this file. -->
+
+<configuration>
+        <property>
+             <name>dfs.replication</name>
+             <value>1</value>
+        </property>
+        <property>
+             <name>dfs.namenode.name.dir</name>
+             <value>file:/usr/local/hadoop/tmp/dfs/name</value>
+        </property>
+        <property>
+             <name>dfs.datanode.data.dir</name>
+             <value>file:/usr/local/hadoop/tmp/dfs/data</value>
+        </property>
+</configuration>
+```
+
+执行 `NameNode`的格式化:
+
+```bash
+/usr/local/hadoop$./bin/hdfs namenode -format
+```
+
+开启 `NameNode` 和 `DataNode` 守护进程
+
+```bash
+/usr/local/hadoop$./sbin/start-dfs.sh
+```
+
+通过命令 `jps` 来判断是否成功启动
+
+![1558535942731](/home/hadoop/ParallelComputingAlgorithm/doc/1558535942731.png)
+
+访问 Web 界面 [http://localhost:50070](http://localhost:50070/) 查看 `NameNode` 和 `Datanode` 信息
+
+![1558535748785](/home/hadoop/ParallelComputingAlgorithm/doc/1558535748785.png)
+
+#### 在`HDFS`上创建目录上传输入文件
+
+```bash
+/usr/local/hadoop$ ./bin/hdfs dfs -mkdir input
+/usr/local/hadoop$ ./bin/hdfs dfs -put ./etc/hadoop/*.xml input
+/usr/local/hadoop$ ./bin/hdfs dfs -ls input
+Found 8 items
+-rw-r--r--   1 hadoop supergroup       4436 2019-05-22 17:01 input/capacity-scheduler.xml
+-rw-r--r--   1 hadoop supergroup       1116 2019-05-22 17:01 input/core-site.xml
+-rw-r--r--   1 hadoop supergroup       9683 2019-05-22 17:01 input/hadoop-policy.xml
+-rw-r--r--   1 hadoop supergroup       1188 2019-05-22 17:01 input/hdfs-site.xml
+-rw-r--r--   1 hadoop supergroup        620 2019-05-22 17:01 input/httpfs-site.xml
+-rw-r--r--   1 hadoop supergroup       3518 2019-05-22 17:01 input/kms-acls.xml
+-rw-r--r--   1 hadoop supergroup       5540 2019-05-22 17:01 input/kms-site.xml
+-rw-r--r--   1 hadoop supergroup        690 2019-05-22 17:01 input/yarn-site.xml
+/usr/local/hadoop$ ./bin/hadoop fs -ls -R
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 17:01 input
+-rw-r--r--   1 hadoop supergroup       4436 2019-05-22 17:01 input/capacity-scheduler.xml
+-rw-r--r--   1 hadoop supergroup       1116 2019-05-22 17:01 input/core-site.xml
+-rw-r--r--   1 hadoop supergroup       9683 2019-05-22 17:01 input/hadoop-policy.xml
+-rw-r--r--   1 hadoop supergroup       1188 2019-05-22 17:01 input/hdfs-site.xml
+-rw-r--r--   1 hadoop supergroup        620 2019-05-22 17:01 input/httpfs-site.xml
+-rw-r--r--   1 hadoop supergroup       3518 2019-05-22 17:01 input/kms-acls.xml
+-rw-r--r--   1 hadoop supergroup       5540 2019-05-22 17:01 input/kms-site.xml
+-rw-r--r--   1 hadoop supergroup        690 2019-05-22 17:01 input/yarn-site.xml
+/usr/local/hadoop$ ./bin/hadoop fs -mkdir wordcount/input
+/usr/local/hadoop$ ./bin/hadoop fs -put ~/ParallelComputingAlgorithm/MapReduce/input3.txt  wordcount/input
+/usr/local/hadoop$ ./bin/hadoop fs -put ~/ParallelComputingAlgorithm/MapReduce/input2.txt  wordcount/input
+/usr/local/hadoop$ ./bin/hadoop fs -put ~/ParallelComputingAlgorithm/MapReduce/input1.txt  wordcount/input
+/usr/local/hadoop$ ./bin/hadoop fs -ls -R
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 17:35 input
+-rw-r--r--   1 hadoop supergroup       4436 2019-05-22 17:01 input/capacity-scheduler.xml
+-rw-r--r--   1 hadoop supergroup       1116 2019-05-22 17:01 input/core-site.xml
+-rw-r--r--   1 hadoop supergroup       9683 2019-05-22 17:01 input/hadoop-policy.xml
+-rw-r--r--   1 hadoop supergroup       1188 2019-05-22 17:01 input/hdfs-site.xml
+-rw-r--r--   1 hadoop supergroup        620 2019-05-22 17:01 input/httpfs-site.xml
+-rw-r--r--   1 hadoop supergroup       3518 2019-05-22 17:01 input/kms-acls.xml
+-rw-r--r--   1 hadoop supergroup       5540 2019-05-22 17:01 input/kms-site.xml
+-rw-r--r--   1 hadoop supergroup        690 2019-05-22 17:01 input/yarn-site.xml
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 17:36 wordcount
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 17:36 wordcount/input
+-rw-r--r--   1 hadoop supergroup        464 2019-05-22 17:36 wordcount/input/input1.txt
+-rw-r--r--   1 hadoop supergroup        511 2019-05-22 17:36 wordcount/input/input2.txt
+-rw-r--r--   1 hadoop supergroup        643 2019-05-22 17:36 wordcount/input/input3.txt
+```
 
 
-#### 使用private子句和critical部分并行化
 
-```c++
-#include <stdio.h>
-#include <omp.h>
+#### `WordCount.java`程序解析
 
-static long num_steps = 1e5;    // 积分区间数
-double step;                    // 积分步长
+```java
+import org.apache.hadoop.fs.FileSystem;```java
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.util.GenericOptionsParser;
 
-#define NUM_THREADS 2   // 并行线程数
+import java.io.IOException;
+import java.util.StringTokenizer;
 
-void main()
-{
-    int i;
-    double pi = 0.0, sum = 0.0, x = 0.0;
-    step = 1.0 / (double)num_steps;
-
-    omp_set_num_threads(NUM_THREADS);   // 设置线程数量
-    //=================================================================
-    #pragma omp parallel private(i,x,sum) // private子句表示x,sum变量对于每个线程是私有的
-    {
-        int id = omp_get_thread_num();
-        for(i = id, sum = 0.0; i < num_steps; i = i + NUM_THREADS)
-        {   // NUM_THREADS 个线程参加计算，
-            // 其中线程 NUM_THREADS-1 迭代 NUM_THREADS-1, 2*NUM_THREADS-1, ... 步
-            x = (i + 0.5) * step;
-            sum += 4.0 / (1.0 + x * x);
+public class WordCount {
+    /***************************
+    * MapReduceBase类:实现了Mapper和Reducer接口的基类（其中的方法只是实现接口，而未作任何事情） 
+    * Mapper接口： 
+    * WritableComparable接口：实现WritableComparable的类可以相互比较。所有被用作key的类应该实现此接口。 
+    * Reporter 则可用于报告整个应用的运行进度，本例中未使用。  
+    ***************************/
+    public static class TokenizerMapper extends Mapper<Object, Text, Text, IntWritable>{
+        /***************************
+        * LongWritable, IntWritable, Text 均是 Hadoop 中实现的用于封装 Java 数据类型的类，这些类实现了WritableComparable接口， 
+        * 都能够被串行化从而便于在分布式环境中进行数据交换，你可以将它们分别视为long,int,String 的替代品。 
+        ***************************/ 
+        private final static IntWritable one = new IntWritable(1);
+        private Text word = new Text();//Text 实现了BinaryComparable类可以作为key值
+        /***************************
+        * Mapper接口中的map方法： 
+        * void map(K1 key, V1 value, OutputCollector<K2,V2> output, Reporter reporter) 
+        * 映射一个单个的输入k/v对到一个中间的k/v对 
+        * 输出对不需要和输入对是相同的类型，输入对可以映射到0个或多个输出对。 
+        * OutputCollector接口：收集Mapper和Reducer输出的<k,v>对。 
+        * OutputCollector接口的collect(k, v)方法:增加一个(k,v)对到output 
+        ***************************/  
+        public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
+            // 用StringTokenizer作为分词器，对value进行分词
+            StringTokenizer itr = new StringTokenizer(value.toString());
+            // 遍历分词后结果
+            while (itr.hasMoreTokens()) {
+                // 将String设置入Text类型word
+                word.set(itr.nextToken());
+                // 将(word,1)，即(Text,IntWritable)写入上下文context，供后续Reduce阶段使用
+                context.write(word, one);
+            }
         }
-        //*************************************************************
-        #pragma omp critical            // critical代码段在同一时刻只能由一个线程执行
-        {                               // 当某线程在这里执行时，其他到达该段代码的线程
-            pi += sum * step;           // 被阻塞直到正在执行的线程退出临界区                                 
-        }
-        //*************************************************************
     }
-    //=================================================================
-    printf("%lf\n",pi);
-}
-```
 
-结果：结果正确
+    // IntSumReducer作为Reduce阶段，需要继承Reducer，并重写reduce()函数
+    public static class IntSumReducer extends Reducer<Text,IntWritable,Text,IntWritable> {
+        private IntWritable result = new IntWritable();
 
-```shell
-$ gcc privateAndCritical.c -fopenmp -o privateAndCritical
-$ ./privateAndCritical 
-3.141593
-$
-```
-#### 使用并行域并行化
-
-```c++
-// 使用并行域并行化
-#include <stdio.h>
-#include <omp.h>
-
-static long num_steps = 1e5;    // 积分区间数
-double step;                    // 积分步长
-
-#define NUM_THREADS 2   // 并行线程数
-
-void main()
-{
-    int i;
-    double pi, sum[NUM_THREADS];
-    step = 1.0 / (double)num_steps;
-
-    omp_set_num_threads(NUM_THREADS);   // 设置线程数量
-    //===========================================================================================
-    #pragma omp parallel private(i)     // 并行域开始，每个线程各自执行这段代码
-    {
-        double x;
-        int id = omp_get_thread_num();
-        for(i = id, sum[id] = 0.0; i < num_steps; i = i + NUM_THREADS)
-        {   // NUM_THREADS 个线程参加计算，
-            // 其中线程 NUM_THREADS-1 迭代 NUM_THREADS-1, 2*NUM_THREADS-1, ... 步
-            x = (i + 0.5) * step;
-            sum[id] += 4.0 / (1.0 + x * x);
+        public void reduce(Text key, Iterable<IntWritable> values, Context context) throws IOException, InterruptedException {
+            int sum = 0;
+            // 遍历map阶段输出结果中的values中每个val，累加至sum
+            for (IntWritable val : values) {
+                sum += val.get();
+            }
+            // 将sum设置入IntWritable类型result
+            result.set(sum);
+            // 通过上下文context的write()方法，输出结果(key, result)，即(Text,IntWritable)
+            context.write(key, result);
         }
     }
-    //===========================================================================================
-    for(i = 0, pi = 0.0; i < NUM_THREADS; i++)
-    {
-        pi += sum[i] * step;
-    }
-    printf("%lf\n",pi);
-}
 
-```
-
-结果：结果正确
-
-```shell
-$ gcc parallelRegion.c  -fopenmp -o parallelRegion
-$ ./parallelRegion 
-3.141593
-$ 
-```
-#### 使用共享任务结构并行化
-
-```c++
-// 使用共享任务结构并行化
-#include <stdio.h>
-#include <omp.h>
-
-static long num_steps = 1e5;    // 积分区间数
-double step;                    // 积分步长
-
-#define NUM_THREADS 2   // 并行线程数
-
-void main()
-{
-    int i;
-    double pi, sum[NUM_THREADS];
-    step = 1.0 / (double)num_steps;
-    omp_set_num_threads(NUM_THREADS);   // 设置线程数量
-    //===================================================================
-    #pragma omp parallel                // 并行域开始，每个线程各自执行这段代码
-    {
-        double x;
-        int id = omp_get_thread_num();
-        sum[id] = 0.0;
-        //*************************************************************************
-        #pragma omp for                 // 未指定chunk，迭代**连续而平均地**分配给各线程
-        for(i = 0; i < num_steps; i++)
-        {   // 两个线程参加计算，线程0进行迭代步0~49999，线程1进行迭代步50000~99999
-            x = (i + 0.5) * step;
-            sum[id] += 4.0 / (1.0 + x * x);
+    public static void main(String[] args) throws Exception {
+        Configuration conf = new Configuration();
+        String[] otherArgs = new GenericOptionsParser(conf, args).getRemainingArgs();
+        if (otherArgs.length < 2) {
+            System.err.println("Usage: wordcount <in> [<in>...] <out>");
+            System.exit(2);
         }
-        //*************************************************************************
+        // 构造一个Job实例job，并命名为"word count"
+        Job job = Job.getInstance(conf, "word count");
+        // 设置jar
+        job.setJarByClass(WordCount.class);         
+        job.setMapperClass(TokenizerMapper.class);  // 为job设置Mapper类 
+        job.setCombinerClass(IntSumReducer.class);  // 为job设置Combiner类  
+        job.setReducerClass(IntSumReducer.class);   // 为job设置Reduce类 
+
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(IntWritable.class);
+
+        for (int i = 0; i < otherArgs.length - 1; ++i) {
+            FileInputFormat.addInputPath(job, new Path(otherArgs[i]));
+        }
+        FileOutputFormat.setOutputPath(job, new Path(otherArgs[otherArgs.length - 1]));
+        // 等待作业job运行完成并退出
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
     }
-    //===================================================================
-    for(i = 0, pi = 0.0; i < NUM_THREADS; i++)
-    {
-        pi += sum[i] * step;
-    }
-    printf("%lf\n", pi);
 }
-```
 
-结果：结果正确
+​```
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.util.GenericOptionsParser;
 
-```shell
-$ gcc shareStructure.c -fopenmp -o shareStructure
-$ ./shareStructure 
-3.141593
-$ 
-```
-#### 使用并行规约
+import java.io.IOException;
+import java.util.StringTokenizer;
 
-```c++
-// 使用并行规约
-#include <stdio.h>
-#include <omp.h>
-
-static long num_steps = 1e5;    // 积分区间数
-double step;                    // 积分步长
-
-#define NUM_THREADS 2   // 并行线程数
-
-void main()
-{
-    int i;
-    double pi = 0.0, sum = 0.0, x = 0.0;
-    step = 1.0 / (double)num_steps;
-
-    omp_set_num_threads(NUM_THREADS);   // 设置线程数量
-    //================================================================================
-    #pragma omp parallel for reduction(+:sum) private(x)
-    // 每个线程保留一份私有拷贝sum，x为线程私有
-    // 最后对线程中所有sum进行+规约，并更新sum的全局值
-    for(i = 0; i < num_steps; i++)
-    {
-        x = (i + 0.5) * step;
-        sum += 4.0 / (1.0 + x * x);
+public class WordCount {
+    /***************************
+    * MapReduceBase类:实现了Mapper和Reducer接口的基类（其中的方法只是实现接口，而未作任何事情） 
+    * Mapper接口： 
+    * WritableComparable接口：实现WritableComparable的类可以相互比较。所有被用作key的类应该实现此接口。 
+    * Reporter 则可用于报告整个应用的运行进度，本例中未使用。  
+    ***************************/
+    public static class TokenizerMapper extends Mapper<Object, Text, Text, IntWritable>{
+        /***************************
+        * LongWritable, IntWritable, Text 均是 Hadoop 中实现的用于封装 Java 数据类型的类，这些类实现了WritableComparable接口， 
+        * 都能够被串行化从而便于在分布式环境中进行数据交换，你可以将它们分别视为long,int,String 的替代品。 
+        ***************************/ 
+        private final static IntWritable one = new IntWritable(1);
+        private Text word = new Text();//Text 实现了BinaryComparable类可以作为key值
+        /***************************
+        * Mapper接口中的map方法： 
+        * void map(K1 key, V1 value, OutputCollector<K2,V2> output, Reporter reporter) 
+        * 映射一个单个的输入k/v对到一个中间的k/v对 
+        * 输出对不需要和输入对是相同的类型，输入对可以映射到0个或多个输出对。 
+        * OutputCollector接口：收集Mapper和Reducer输出的<k,v>对。 
+        * OutputCollector接口的collect(k, v)方法:增加一个(k,v)对到output 
+        ***************************/  
+        public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
+            // 用StringTokenizer作为分词器，对value进行分词
+            StringTokenizer itr = new StringTokenizer(value.toString());
+            // 遍历分词后结果
+            while (itr.hasMoreTokens()) {
+                // 将String设置入Text类型word
+                word.set(itr.nextToken());
+                // 将(word,1)，即(Text,IntWritable)写入上下文context，供后续Reduce阶段使用
+                context.write(word, one);
+            }
+        }
     }
-    //================================================================================
-    pi = sum * step;
-    printf("%lf\n",pi);
+
+    // IntSumReducer作为Reduce阶段，需要继承Reducer，并重写reduce()函数
+    public static class IntSumReducer extends Reducer<Text,IntWritable,Text,IntWritable> {
+        private IntWritable result = new IntWritable();
+
+        public void reduce(Text key, Iterable<IntWritable> values, Context context) throws IOException, InterruptedException {
+            int sum = 0;
+            // 遍历map阶段输出结果中的values中每个val，累加至sum
+            for (IntWritable val : values) {
+                sum += val.get();
+            }
+            // 将sum设置入IntWritable类型result
+            result.set(sum);
+            // 通过上下文context的write()方法，输出结果(key, result)，即(Text,IntWritable)
+            context.write(key, result);
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        Configuration conf = new Configuration();
+        String[] otherArgs = new GenericOptionsParser(conf, args).getRemainingArgs();
+        if (otherArgs.length < 2) {
+            System.err.println("Usage: wordcount <in> [<in>...] <out>");
+            System.exit(2);
+        }
+        // 构造一个Job实例job，并命名为"word count"
+        Job job = Job.getInstance(conf, "word count");
+        // 设置jar
+        job.setJarByClass(WordCount.class);         
+        job.setMapperClass(TokenizerMapper.class);  // 为job设置Mapper类 
+        job.setCombinerClass(IntSumReducer.class);  // 为job设置Combiner类  
+        job.setReducerClass(IntSumReducer.class);   // 为job设置Reduce类 
+
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(IntWritable.class);
+
+        for (int i = 0; i < otherArgs.length - 1; ++i) {
+            FileInputFormat.addInputPath(job, new Path(otherArgs[i]));
+        }
+        FileOutputFormat.setOutputPath(job, new Path(otherArgs[otherArgs.length - 1]));
+        // 等待作业job运行完成并退出
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
+    }
 }
+
 ```
 
-结果：结果正确
+#### `WordCount.java`编译打包
 
-```shell
-$ gcc reduce.c -fopenmp -o reduce
-$ ./reduce 
-3.141593
-$ 
+```bash
+$ cd wordcount_hadoop/
+$ ls
+WordCount.java
+$ mkdir ./classes
+$ javac  -classpath /usr/local/hadoop/share/hadoop/common/hadoop-common-2.7.6.jar:/usr/local/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-client-core-2.7.6.jar:/usr/local/hadoop/share/hadoop/common/lib/commons-cli-1.2.jar -d ./classes/ WordCount.java 
+$ jar -cvf ./WordCount.jar -C ./classes  .
+已添加清单
+正在添加: WordCount$TokenizerMapper.class(输入 = 1736) (输出 = 754)(压缩了 56%)
+正在添加: WordCount$IntSumReducer.class(输入 = 1739) (输出 = 737)(压缩了 57%)
+正在添加: WordCount$TokenizerMapper$CountersEnum.class(输入 = 1021) (输出 = 507)(压缩了 50%)
+正在添加: WordCount.class(输入 = 1907) (输出 = 1038)(压缩了 45%)
+```
+
+#### 在`HDFS`上执行`WordCount.jar`
+
+```bash
+/usr/local/hadoop$ ./bin/hadoop jar ~/ParallelComputingAlgorithm/MapReduce/wordcount_hadoop/WordCount.jar WordCount wordcount/input wordcount/output
+/usr/local/hadoop$ ./bin/hadoop fs -ls -R
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 17:35 input
+-rw-r--r--   1 hadoop supergroup       4436 2019-05-22 17:01 input/capacity-scheduler.xml
+-rw-r--r--   1 hadoop supergroup       1116 2019-05-22 17:01 input/core-site.xml
+-rw-r--r--   1 hadoop supergroup       9683 2019-05-22 17:01 input/hadoop-policy.xml
+-rw-r--r--   1 hadoop supergroup       1188 2019-05-22 17:01 input/hdfs-site.xml
+-rw-r--r--   1 hadoop supergroup        620 2019-05-22 17:01 input/httpfs-site.xml
+-rw-r--r--   1 hadoop supergroup       3518 2019-05-22 17:01 input/kms-acls.xml
+-rw-r--r--   1 hadoop supergroup       5540 2019-05-22 17:01 input/kms-site.xml
+-rw-r--r--   1 hadoop supergroup        690 2019-05-22 17:01 input/yarn-site.xml
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 17:45 wordcount
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 17:36 wordcount/input
+-rw-r--r--   1 hadoop supergroup        464 2019-05-22 17:36 wordcount/input/input1.txt
+-rw-r--r--   1 hadoop supergroup        511 2019-05-22 17:36 wordcount/input/input2.txt
+-rw-r--r--   1 hadoop supergroup        643 2019-05-22 17:36 wordcount/input/input3.txt
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 17:45 wordcount/output
+-rw-r--r--   1 hadoop supergroup          0 2019-05-22 17:45 wordcount/output/_SUCCESS
+-rw-r--r--   1 hadoop supergroup       1274 2019-05-22 17:45 wordcount/output/part-r-00000
+```
+
+#### 获取输出，实验成功
+
+```bash
+/usr/local/hadoop$ ./bin/hadoop fs -get wordcount/output/part-r-00000 ~/ParallelComputingAlgorithm/MapReduce/
+```
+![1558537497688](/home/hadoop/ParallelComputingAlgorithm/doc/1558537497688.png)
+
+```bash
+/usr/local/hadoop$ cat ~/ParallelComputingAlgorithm/MapReduce/part-r-00000
+Although	1
+As	1
+First	1
+In	1
+Maybe	2
+Or	1
+Since	1
+Studies	1
+The	1
+Therefore	1
+Therefore,	1
+a	2
+abilities	1
+about	1
+actively	1
+ages.	1
+all,	1
+an	1
+and	2
+are	3
+babies	2
+be	5
+because	1
+being	4
+better	2
+birth	2
+both	1
+brothers	1
+busy	1
+care	1
+cause	1
+certain	1
+changes	1
+children	2
+cognitive	1
+compared	1
+cortisol	3
+could	3
+danger	1
+different	2
+direct	1
+effects	2
+emotional	1
+excited	2
+excitement	2
+expecting	1
+explain	1
+explanation	1
+exposed	1
+feel	1
+first-time	2
+firstborn	4
+firstborn.	2
+for	2
+from	2
+geared	1
+genes	2
+genes,	1
+genetically	2
+happen	1
+have	1
+high	2
+higher	2
+human	1
+identical	1
+in	1
+infants	3
+infants,	1
+infants.	1
+intense	1
+is	1
+it	1
+larger	1
+lead	1
+level	5
+levels	2
+may	2
+monkey	1
+monkeys	1
+more	4
+mothers	2
+mothers,	1
+necessary	1
+nervous	1
+nervous.	1
+not	2
+of	19
+older	2
+or	5
+order	1
+order.	1
+out	1
+parent.	1
+possible	1
+potential	1
+pregnant	2
+random	1
+rather	1
+relatively	2
+released.	1
+releasing	1
+responded	1
+result	2
+returning	1
+sample	1
+samples	1
+sensitive	1
+share	1
+siblings	2
+similar	1
+simply	1
+sisters.	1
+situations.	1
+size	1
+small,	1
+stimulating	1
+stimulation	3
+stimulation.	2
+stress	1
+studies	1
+taking	1
+tease	1
+terms	1
+than	1
+that	2
+the	19
+their	4
+they	2
+to	9
+too	1
+towards	1
+unfamiliar	1
+usually	1
+was	1
+we	1
+were	4
+when	1
+which	1
+with	3
+younger	2
 ```
 
 ### 题目二
 
-用OpenMP实现PSRS排序
+实现一个统计输入文件中各个长度的单词出现频次的程序。
 
+#### 输入生成代码
 
-设计：bingxingku
+```python
+import numpy.random as random
 
-```c++
-/*******************************************************************************
- * PSRS (Parallel Sorting by Regular Sampling) 排序算法：
- * STEP1 均匀划分: 将n个元素A[1,...,n]均匀划分为p段，每个pi处理A[(i-1)n/p+1,...,in/p]
- * STEP2 局部排序: pi调用串行排序算法对A[(i-1)n/p+1,...,in/p]排序
- * STEP3 正则采样: pi从有序子序列A[(i-1)n/p+1,...,in/p]中选取p个样本元素
- * STEP4 采样排序: 用一台处理器对p^2个样本元素进行串行排序
- * STEP5 选择主元: 用一台处理器从排好序的样本序列中选取p-1个主元，并传播给其他pi
- * STEP6 主元划分: pi按主元将有序段A[(i-1)n/p+1,...,in/p]划分成p段
- * STEP7 全局交换: 各处理器将其有序段按段号交换到对应的处理器中
- * STEP8 局部排序: 各处理器对接收到的元素进行局部排序
-********************************************************************************/
-#include <stdio.h>
-#include <math.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <omp.h>
+def generate_random_str(randomlength=16):
+    """
+    生成一个指定长度的随机字符串
+    """
+    random_str = ''
+    base_str = 'ABCDEFGHIGKLMNOPQRSTUVWXYZ'
+    length = len(base_str) - 1
+    for i in range(randomlength):
+        random_str += base_str[random.randint(0, length)]
+    return random_str
 
-#define NUM_THREADS 3   // 并行线程数
+output = open("./input.txt","w")
+count = random.randint(20,50)
+for i in range(count):
+    output.write(generate_random_str(random.randint(0, 10)) + " ")
 
-#define RANDOM_LIMIT 50
-#define TEST_SIZE 81
-#define SHOW_CORRECTNESS
-//#define SHOW_DISTRIBUTION
-
-double Myrandom(void){
-    int Sign = rand() % 2;
-    return (rand() % RANDOM_LIMIT) / pow(-1,Sign + 2); 
-}
-void swap(int* a, int* b)
-{
-    int temp = *a;
-    *a = *b;
-    *b = temp;
-}
-int partition(int* array, int left, int right)
-{
-    int x = array[right];
-    int i = left - 1;
-    for(int j = left; j < right; j++)
-    {
-        if(array[j] <= x)
-        {
-            swap(&array[++i],&array[j]);
-        }
-    }
-    swap(&array[i + 1],&array[right]);
-    return i + 1;
-}
-void quickSort(int* array, int left, int right)
-{
-    if(left < right)
-    {
-        int q = partition(array, left, right);
-        quickSort(array, left, q - 1);
-        quickSort(array, q + 1, right);
-    }
-}
-void PSRSSort(int* array, int length)
-{
-    int base = length / NUM_THREADS;                    // 划分段长度(这里假设能整除，不能整除补无穷大)
-    int sample[NUM_THREADS * NUM_THREADS];              // 正则采样数
-    int pivot[NUM_THREADS - 1];                         // 主元
-    int count[NUM_THREADS][NUM_THREADS] = {0};          // 各cpu段长度
-    int pivotArray[NUM_THREADS][NUM_THREADS][50] = {0}; // 各cpu段
-
-    omp_set_num_threads(NUM_THREADS);   // 设置线程数量
-    //=================================================================================
-    #pragma omp parallel
-    {
-        int id = omp_get_thread_num();
-        // 并行局部排序
-        quickSort(array, id * base, (id + 1) * base - 1);
-        // 正则采样
-        for(int j = 0; j < NUM_THREADS; j++)
-        {
-            sample[id * NUM_THREADS + j] = array[id * base + (j + 1) * base / (NUM_THREADS + 1)];
-        }
-        #pragma omp barrier             // 设置路障，同步队列中的所有线程
-        //*****************************************************************************
-        #pragma omp master              
-        {   // 主线程采样排序
-            quickSort(sample, 0, NUM_THREADS * NUM_THREADS - 1);
-            // 选择主元
-            for(int i = 1; i < NUM_THREADS; i++)
-            {
-                pivot[i - 1] = sample[i * NUM_THREADS];
-            }
-        }
-        #pragma omp barrier             // 设置路障，同步队列中的所有线程
-        //*****************************************************************************
-        for(int k = 0, m = 0/*主元指针*/; k < base; k++)       // 主元划分
-        {
-            if(array[id * base + k] < pivot[m])
-            {   
-                pivotArray[id][m][count[id][m]++] = array[id * base + k];
-            }
-            else
-            {   
-                m != NUM_THREADS - 1 ? m++ : 0;     // 最后一段的处理
-                pivotArray[id][m][count[id][m]++] = array[id * base + k];
-            }
-        }
-        //*****************************************************************************
-        #pragma omp barrier             // 设置路障，同步队列中的所有线程
-        // 全局交换
-        for(int k = 0; k < NUM_THREADS; k++)
-        {
-            if(k != id)
-            {
-                memcpy(pivotArray[id][id] + count[id][id], pivotArray[k][id], sizeof(int) * count[k][id]);
-                count[id][id] += count[k][id];
-            }
-        }
-        // 局部排序
-        quickSort(pivotArray[id][id], 0, count[id][id] - 1);
-    }
-    //=================================================================================
-    // 结果输出
-    #ifdef SHOW_DISTRIBUTION
-    for(int z = 0; z < NUM_THREADS; z++)
-        printf("%d\t",count[z][z]);
-    printf("\n");
-    #endif
-    #ifdef SHOW_CORRECTNESS
-    printf("The Sorted Array is:\n");
-    for(int x = 0; x < NUM_THREADS; x++)
-    {
-        for(int y = 0; y < count[x][x]; y++)
-            printf("%d\t",pivotArray[x][x][y]);
-        printf("\n");
-    }
-    #endif
-}
-int main(int argc, char* argv[])
-{   //====================================================================
-    srand((unsigned int)time(NULL));
-    int test[TEST_SIZE];
-    for(int i = 0;i < TEST_SIZE;i++)
-        test[i] = Myrandom();
-    //====================================================================
-    #ifdef SHOW_CORRECTNESS
-    printf("The Original结果正确 Array is:\n");
-    for(int i = 0; i < 9; i++)
-    {
-        for(int j = 0; j < 9; j++)
-            printf("%d\t",test[i * 9 + j]);
-        printf("\n");
-    }
-    #endif
-    //====================================================================
-    PSRSSort(test, TEST_SIZE);
-    //===================结果正确=================================================
-    return 0;
-}
+output.close()
 ```
 
-结果：结果正确
+#### 在`HDFS`上创建目录上传输入文件
 
-```shell
-$ g++ psrs.cpp -fopenmp -o psrs -lm
-$ ./psrs 
-The Original Array is:
--39	-46	-18	-38	44	8	24	16	-31	
--36	0	-32	-27	12	31	0	0	42	
-48	44	22	44	-28	-2	6	29	29	
-21	16	-37	42	-20	37	14	-47	29	
--14	20	-39	7	-15	5	0	3	-13	
-17	-31	-1	2	-6	-27	-20	11	-39	
-17	47	32	29	-32	4	28	-5	-10	
--31	22	-13	25	44	29	-37	31	31	
--41	0	-46	21	29	-37	34	4	8	
-The Sorted Array is:
--47	-46	-46	-41	-39	-39	-39	-38	-37	-37	-37	-36	-32	-32	-31	-31	-31	-28	-27	-27	-20	-20	-18	-15	-14	-13	-13	-10	-6	-5	-2	-1	
-0	0	0	0	0	2	3	4	4	5	6	7	8	8	11	12	14	16	16	
-17	17	20	21	21	22	22	24	25	28	29	29	29	29	29	29	31	31	31	32	34	37	42	42	44	44	44	44	47	48	
-$ 
+```bash
+/usr/local/hadoop$ ./bin/hadoop fs -mkdir lencount
+/usr/local/hadoop$ ./bin/hadoop fs -mkdir lencount/input
+/usr/local/hadoop$ ./bin/hadoop fs -put ~/ParallelComputingAlgorithm/MapReduce/input4.txt  lencount/input
+/usr/local/hadoop$ ./bin/hadoop fs -put ~/ParallelComputingAlgorithm/MapReduce/input5.txt  lencount/input
+/usr/local/hadoop$ ./bin/hadoop fs -put ~/ParallelComputingAlgorithm/MapReduce/input6.txt  lencount/input
+/usr/local/hadoop$ ./bin/hadoop fs -put ~/ParallelComputingAlgorithm/MapReduce/input7.txt  lencount/input
+/usr/local/hadoop$ ./bin/hadoop fs -put ~/ParallelComputingAlgorithm/MapReduce/input8.txt  lencount/input
+/usr/local/hadoop$ ./bin/hadoop fs -ls -R
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 17:35 input
+-rw-r--r--   1 hadoop supergroup       4436 2019-05-22 17:01 input/capacity-scheduler.xml
+-rw-r--r--   1 hadoop supergroup       1116 2019-05-22 17:01 input/core-site.xml
+-rw-r--r--   1 hadoop supergroup       9683 2019-05-22 17:01 input/hadoop-policy.xml
+-rw-r--r--   1 hadoop supergroup       1188 2019-05-22 17:01 input/hdfs-site.xml
+-rw-r--r--   1 hadoop supergroup        620 2019-05-22 17:01 input/httpfs-site.xml
+-rw-r--r--   1 hadoop supergroup       3518 2019-05-22 17:01 input/kms-acls.xml
+-rw-r--r--   1 hadoop supergroup       5540 2019-05-22 17:01 input/kms-site.xml
+-rw-r--r--   1 hadoop supergroup        690 2019-05-22 17:01 input/yarn-site.xml
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 20:47 lencount
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 20:48 lencount/input
+-rw-r--r--   1 hadoop supergroup         58 2019-05-22 20:47 lencount/input/input4.txt
+-rw-r--r--   1 hadoop supergroup        107 2019-05-22 20:48 lencount/input/input5.txt
+-rw-r--r--   1 hadoop supergroup         77 2019-05-22 20:48 lencount/input/input6.txt
+-rw-r--r--   1 hadoop supergroup        116 2019-05-22 20:48 lencount/input/input7.txt
+-rw-r--r--   1 hadoop supergroup        127 2019-05-22 20:48 lencount/input/input8.txt
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 17:45 wordcount
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 17:36 wordcount/input
+-rw-r--r--   1 hadoop supergroup        464 2019-05-22 17:36 wordcount/input/input1.txt
+-rw-r--r--   1 hadoop supergroup        511 2019-05-22 17:36 wordcount/input/input2.txt
+-rw-r--r--   1 hadoop supergroup        643 2019-05-22 17:36 wordcount/input/input3.txt
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 17:45 wordcount/output
+-rw-r--r--   1 hadoop supergroup          0 2019-05-22 17:45 wordcount/output/_SUCCESS
+-rw-r--r--   1 hadoop supergroup       1274 2019-05-22 17:45 wordcount/output/part-r-00000
 ```
+
+#### `LenCount.java`程序解析
+
+```java
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.util.GenericOptionsParser;
+
+import java.io.IOException;
+import java.util.StringTokenizer;
+
+public class LenCount {
+    public static class CounterMapper extends Mapper<Object, Text, Text, IntWritable>{
+        private final static IntWritable one = new IntWritable(1);
+        private Text word_len = new Text();
+        public void map(Object key, Text value, Context context) throws IOException, InterruptedException {
+            // 用StringTokenizer作为分词器，对value进行分词
+            StringTokenizer itr = new StringTokenizer(value.toString());
+            // 遍历分词后结果
+            while (itr.hasMoreTokens()) {
+                // 将String设置入Text类型word
+                word_len.set(Integer.toString(itr.nextToken().length()));
+                // 将(word,1)，即(Text,IntWritable)写入上下文context，供后续Reduce阶段使用
+                context.write(word_len, one);
+            }
+        }
+    }
+    public static class IntSumReducer extends Reducer<Text,IntWritable,Text,IntWritable> {
+        private IntWritable result = new IntWritable();
+
+        public void reduce(Text key, Iterable<IntWritable> values, Context context) throws IOException, InterruptedException {
+            int sum = 0;
+            // 遍历map阶段输出结果中的values中每个val，累加至sum
+            for (IntWritable val : values) {
+                sum += val.get();
+            }
+            // 将sum设置入IntWritable类型result
+            result.set(sum);
+            // 通过上下文context的write()方法，输出结果(key, result)，即(Text,IntWritable)
+            context.write(key, result);
+        }
+    }
+
+    public static void main(String[] args) throws Exception {
+        Configuration conf = new Configuration();
+        String[] otherArgs = new GenericOptionsParser(conf, args).getRemainingArgs();
+        if (otherArgs.length < 2) {
+            System.err.println("Usage: wordlen <in> [<in>...] <out>");
+            System.exit(2);
+        }
+        // 构造一个Job实例job，并命名为"wordlen count"
+        Job job = Job.getInstance(conf, "wordlen count");
+        // 设置jar
+        job.setJarByClass(LenCount.class);         
+        job.setMapperClass(CounterMapper.class);    // 为job设置Mapper类 
+        job.setCombinerClass(IntSumReducer.class);  // 为job设置Combiner类  
+        job.setReducerClass(IntSumReducer.class);   // 为job设置Reduce类 
+
+        job.setOutputKeyClass(Text.class);
+        job.setOutputValueClass(IntWritable.class);
+
+        for (int i = 0; i < otherArgs.length - 1; ++i) {
+            FileInputFormat.addInputPath(job, new Path(otherArgs[i]));
+        }
+        FileOutputFormat.setOutputPath(job, new Path(otherArgs[otherArgs.length - 1]));
+        // 等待作业job运行完成并退出
+        System.exit(job.waitForCompletion(true) ? 0 : 1);
+    }
+}
+
+```
+
+#### `LenCount.java`编译打包
+
+```bash
+$ cd ../lencount/
+$ mkdir ./classes
+$ javac  -classpath /usr/local/hadoop/share/hadoop/common/hadoop-common-2.7.6.jar:/usr/local/hadoop/share/hadoop/mapreduce/hadoop-mapreduce-client-core-2.7.6.jar:/usr/local/hadoop/share/hadoop/common/lib/commons-cli-1.2.jar -d ./classes/ LenCount.java 
+$ jar -cvf ./LenCount.jar -C ./classes  .
+已添加清单
+正在添加: LenCount.class(输入 = 1902) (输出 = 1034)(压缩了 45%)
+正在添加: LenCount$CounterMapper.class(输入 = 1843) (输出 = 805)(压缩了 56%)
+正在添加: LenCount$IntSumReducer.class(输入 = 1736) (输出 = 739)(压缩了 57%)
+```
+
+#### 在`HDFS`上执行`LenCount.jar`
+
+```bash
+/usr/local/hadoop$ ./bin/hadoop jar ~/ParallelComputingAlgorithm/MapReduce/lencount/LenCount.jar LenCount lencount/input lencount/output
+...
+/usr/local/hadoop$ ./bin/hadoop fs -ls -R
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 17:35 input
+-rw-r--r--   1 hadoop supergroup       4436 2019-05-22 17:01 input/capacity-scheduler.xml
+-rw-r--r--   1 hadoop supergroup       1116 2019-05-22 17:01 input/core-site.xml
+-rw-r--r--   1 hadoop supergroup       9683 2019-05-22 17:01 input/hadoop-policy.xml
+-rw-r--r--   1 hadoop supergroup       1188 2019-05-22 17:01 input/hdfs-site.xml
+-rw-r--r--   1 hadoop supergroup        620 2019-05-22 17:01 input/httpfs-site.xml
+-rw-r--r--   1 hadoop supergroup       3518 2019-05-22 17:01 input/kms-acls.xml
+-rw-r--r--   1 hadoop supergroup       5540 2019-05-22 17:01 input/kms-site.xml
+-rw-r--r--   1 hadoop supergroup        690 2019-05-22 17:01 input/yarn-site.xml
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 20:49 lencount
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 20:48 lencount/input
+-rw-r--r--   1 hadoop supergroup         58 2019-05-22 20:47 lencount/input/input4.txt
+-rw-r--r--   1 hadoop supergroup        107 2019-05-22 20:48 lencount/input/input5.txt
+-rw-r--r--   1 hadoop supergroup         77 2019-05-22 20:48 lencount/input/input6.txt
+-rw-r--r--   1 hadoop supergroup        116 2019-05-22 20:48 lencount/input/input7.txt
+-rw-r--r--   1 hadoop supergroup        127 2019-05-22 20:48 lencount/input/input8.txt
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 20:49 lencount/output
+-rw-r--r--   1 hadoop supergroup          0 2019-05-22 20:49 lencount/output/_SUCCESS
+-rw-r--r--   1 hadoop supergroup         40 2019-05-22 20:49 lencount/output/part-r-00000
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 17:45 wordcount
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 17:36 wordcount/input
+-rw-r--r--   1 hadoop supergroup        464 2019-05-22 17:36 wordcount/input/input1.txt
+-rw-r--r--   1 hadoop supergroup        511 2019-05-22 17:36 wordcount/input/input2.txt
+-rw-r--r--   1 hadoop supergroup        643 2019-05-22 17:36 wordcount/input/input3.txt
+drwxr-xr-x   - hadoop supergroup          0 2019-05-22 17:45 wordcount/output
+-rw-r--r--   1 hadoop supergroup          0 2019-05-22 17:45 wordcount/output/_SUCCESS
+-rw-r--r--   1 hadoop supergroup       1274 2019-05-22 17:45 wordcount/output/part-r-00000
+```
+
+#### 获取输出，实验成功
+
+```bash
+/usr/local/hadoop$ ./bin/hadoop fs -get lencount/output/part-r-00000 ~/ParallelComputingAlgorithm/MapReduce/lencount/
+/usr/local/hadoop$ cat ~/ParallelComputingAlgorithm/MapReduce/lencount/part-r-00000
+```
+
+![1558538086784](/home/hadoop/ParallelComputingAlgorithm/doc/1558538086784.png)
+
 
 ## 总结
 
-通过算法实现锻炼了并行思维，熟悉了OpenMP并行库的使用。
-
+通过算法实现锻炼了并行思维，熟悉了MapReduce分布式并行环境的使用。
