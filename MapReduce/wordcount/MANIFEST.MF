@@ -1,0 +1,5 @@
+Manifest-Version: 1.0
+Created-By: 1.8.0_212 (Oracle Corporation)
+Main-Class: WordCount
+Class-Path: ~/hadoop/hadoop-1.0.4/lib/*jar
+

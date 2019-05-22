@@ -1,0 +1,38 @@
+{
+    "workbench.colorTheme": "One Dark Pro Bold",
+    "git.confirmSync": false,
+    "latex-workshop.view.pdf.viewer": "tab",
+    "terminal.integrated.fontFamily": "Menlo for Powerline",
+    "window.zoomLevel": 0,
+    "editor.fontWeight": "800",
+    "editor.fontLigatures": true,
+    "editor.fontFamily": "Fira Code,'HYNanGongJ'",
+    "editor.fontSize": 17,
+
+    "background.enabled": true,
+    "background.useDefault": false,
+    "background.customImages":  [
+                                "/home/zjt/图片/0002.jpg",
+                                "/home/zjt/图片/0002.jpg",
+                                "/home/zjt/图片/0002.jpg",
+                                "/home/zjt/图片/0002.jpg"
+                                ],
+    "background.style": {
+        "-webkit-background-size": "cover",
+        "-moz-background-size": "cover",
+        "-o-background-size": "cover",
+        "background-size": "cover",
+        /*
+        "content": "''",
+        "pointer-events": "none",
+        "position": "cover",
+        "z-index": "99999",
+        "width": "100%",
+        "height": "100%",
+        "background-position": "center",
+        "background-repeat": "no-repeat",
+        //"background-size": "100%,100%",
+*/
+        "opacity": 0.25
+    }
+}
